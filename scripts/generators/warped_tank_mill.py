@@ -14,13 +14,13 @@ import utils
 path = "./data/a_points.csv"
 groove_depth = 5     # Groove cut depth (mm)
 outcut_depth = 12    # Outcut depth (mm)
-cut_step = 1         # Step-down increment (mm)
+cut_step = 3         # Step-down increment (mm)
 
 # ---- 1. Read probe points ----
 probed_points = utils.load_points(path)
 
 # ---- 2. Load segment definitions from JSON ----
-with open("./data/tank_mill_features.json", "r") as f:
+with open("./data/b_tank_mill_features.json", "r") as f:
     features = json.load(f)
 
 # Convert JSON format to tuple format expected by utils.build_path
@@ -53,23 +53,32 @@ def center_path(x, y, valid_overlay):
     return x + offset_x, y + offset_y
 
 print("Building groove path")
-groove_x, groove_y = utils.build_path(groove_segments, utils.arc_g2)
+groove_x, groove_y = utils.build_path(groove_segments, utils.arc_g3)
 groove_x, groove_y = center_path(groove_x, groove_y, probed_points)
 orig_groove_x, orig_groove_y = np.copy(groove_x), np.copy(groove_y)
 
 print("\n")
 
 print("Building outcut path")
-outcut_x, outcut_y = utils.build_path(outcut_segments, utils.arc_g3)
+outcut_x, outcut_y = utils.build_path(outcut_segments, utils.arc_g2)
 outcut_x, outcut_y = center_path(outcut_x, outcut_y, probed_points)
 orig_outcut_x, orig_outcut_y = np.copy(outcut_x), np.copy(outcut_y)
 
 # ---- 4. Groove Warping ----
 baseline = 80.0
 gcode_path = LineString(list(zip(groove_x, groove_y)))
-rbf = Rbf(probed_points["x"], probed_points["y"],
-    [ShapelyPoint(row["x"], row["y"]).distance(gcode_path.interpolate(gcode_path.project(ShapelyPoint(row["x"], row["y"])))) - baseline
-    for idx, row in probed_points.iterrows()], function='linear')
+
+def residual(px, py):
+    p = ShapelyPoint(px, py)
+    d = p.distance(gcode_path.interpolate(gcode_path.project(p)))  # unsigned distance
+    return d - baseline  # <-- flip sign: if d>baseline, residual is negative (pull inward)
+
+rbf = Rbf(
+    probed_points["x"], probed_points["y"],
+    [residual(row["x"], row["y"]) for _, row in probed_points.iterrows()],
+    function='linear'
+)
+
 
 warped_x, warped_y = [], []
 for i in range(len(groove_x)):
@@ -232,71 +241,126 @@ plot.show()
 
 # ---- 8. Export G-code for groove, holes, outcut in a single file ----
 spiral_stepdown = 2.0   # mm per spiral
-hole_diameter = 8.5
-tool_diameter = 7.0
-hole_radius = hole_diameter / 2
-tool_radius = tool_diameter / 2
-offset = hole_radius - tool_radius   # 0.75mm offset from hole center
-probe_offset_z = 44
+hole_diameter   = 8.5
+tool_diameter   = 7.0
+hole_radius     = hole_diameter / 2
+tool_radius     = tool_diameter / 2
+offset          = hole_radius - tool_radius   # 0.75mm offset from hole center
 
-safe_height = 3.0
+safe_height     = 20.0
 approach_height = 1.0
-final_depth = -12.0
+probe_offset_z  = 44.0  # mm offset between probe zero and machine zero
 
-job_travel_height = -7.7  # mm above probe zero (safe for rapid XY moves)
+# ---- Feeds (mm/min) ----
+feed_plunge = 200.0     # Z-only plunges / re-plunges
+feed_linear = 1000.0    # cutting moves (G1 XY/XYZ)
+feed_arc    = 500.0     # helical/circular arcs (G2/G3)
+
+# ---- “Rapid” between cuts ----
+# Many controllers don't let you change G0 speed. If you want a controllable
+# "rapid", set use_g1_rapid=True and we’ll move with G1 at rapid_feed.
+use_g1_rapid = False
+rapid_feed   = 3000.0   # only used when use_g1_rapid=True
+
+def write_rapid(fh, x=None, y=None, z=None):
+    """Emit a rapid move. Uses G0 by default, or G1 with rapid_feed if configured."""
+    parts = []
+    if x is not None: parts.append(f"X{x:.3f}")
+    if y is not None: parts.append(f"Y{y:.3f}")
+    if z is not None: parts.append(f"Z{z:.3f}")
+    if not parts:
+        return
+    if use_g1_rapid:
+        fh.write("G1 " + " ".join(parts) + f" F{rapid_feed:.0f}\n")
+    else:
+        fh.write("G0 " + " ".join(parts) + "\n")
+
+# Calculate job travel height as 20mm above the highest point of the tank
+highest_tank_point = float(np.max(surface_z))
+job_travel_height  = highest_tank_point + probe_offset_z + safe_height
+
+# Utility: build “parallel-to-surface” Z paths for a given total depth & step
+def make_parallel_passes(surface_array, total_depth, step):
+    """Returns list of z-path arrays: surface_array - depth_i, last pass exact."""
+    passes = []
+    depth = float(step)
+    while depth < total_depth - 1e-9:
+        passes.append(surface_array - depth)
+        depth += step
+    passes.append(surface_array - float(total_depth))  # exact final pass
+    return passes
 
 with open("tank_full_job_warped.gcode", "w") as f:
-    # --- 1. Warped Groove ---
-    f.write("G21 ; Set units to mm\nG90 ; Absolute positioning\n")
-    for pass_depth in range(1, groove_depth+1):
-        zpath = surface_z - pass_depth
-        f.write(f"( Groove Pass {pass_depth}: {pass_depth}mm below surface )\n")
-        # Move to groove start at travel height, then plunge Z down
-        f.write(f"G0 Z{job_travel_height:.3f}\n")
-        f.write(f"G0 X{smooth_groove_x[0]:.3f} Y{smooth_groove_y[0]:.3f}\n")
-        f.write(f"G0 Z{zpath[0]+probe_offset_z:.3f}\n")
+    # --- Program header ---
+    f.write("G21 ; mm units\nG90 ; absolute positioning\n$H ; Home\n")
+
+    # ----------------------
+    # --- 1) GROOVE
+    # ----------------------
+    groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step)
+
+    for idx, zpath in enumerate(groove_passes, 1):
+        step_size = groove_depth - cut_step*(idx-1)
+        if step_size > cut_step:  # only true for last pass
+            step_size = groove_depth - cut_step*(len(groove_passes)-1)
+
+        f.write(f"\n( Groove pass {idx}: {step_size:.3f} mm step, parallel to surface )\n")
+        write_rapid(f, z=job_travel_height)
+        write_rapid(f, x=smooth_groove_x[0], y=smooth_groove_y[0])
+        f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
+
         for xg, yg, zg in zip(smooth_groove_x[1:], smooth_groove_y[1:], zpath[1:]):
-            f.write(f"G1 X{xg:.3f} Y{yg:.3f} Z{zg+probe_offset_z:.3f} F1000\n")
-    # *** Rapid up after groove ***
-    f.write(f"G0 Z{job_travel_height:.3f}\n")
+            f.write(f"G1 X{xg:.3f} Y{yg:.3f} Z{zg + probe_offset_z:.3f} F{feed_linear:.0f}\n")
+
+    write_rapid(f, z=job_travel_height)
     f.write("( End Groove )\n")
 
-    # --- 2. Spiral-milled Holes (correct Z start) ---
-    f.write("\n( Spiral-milled holes )\n")
-    for i, (x, y) in enumerate(warped_drill_points):
-        z_top = drill_surface_z[i]
-        f.write(f"\n( Spiral Hole {i+1} at X{x:.3f} Y{y:.3f} )\n")
-        # Move to hole XY at travel height, then approach Z
-        f.write(f"G0 Z{job_travel_height:.3f}\n")
-        f.write(f"G0 X{x:.3f} Y{y:.3f}\n")
-        f.write(f"G0 Z{z_top + approach_height + probe_offset_z:.3f}\n")
-        # Rapid to spiral start point (offset from center) at approach Z
-        start_x = x + offset
-        start_y = y
-        f.write(f"G0 X{start_x:.3f} Y{start_y:.3f}\n")
+    # ----------------------
+    # --- 2) SPIRAL HOLES (no mid-lift)
+    # ----------------------
+    f.write("\n( Spiral-milled holes: helical 2mm per rev, no mid-lift )\n")
+    for i, (x, y) in enumerate(warped_drill_points, 1):
+        z_top        = float(drill_surface_z[i-1])     # local surface
+        target_depth = z_top - outcut_depth            # final Z
+        start_x, start_y = x + offset, y
+
+        f.write(f"\n( Spiral Hole {i} at X{x:.3f} Y{y:.3f} )\n")
+        write_rapid(f, z=job_travel_height)
+        write_rapid(f, x=x, y=y)
+        write_rapid(f, z=z_top + approach_height + probe_offset_z)
+        write_rapid(f, x=start_x, y=start_y)
+
         current_depth = z_top
-        while current_depth > z_top + final_depth:
-            next_depth = max(current_depth - spiral_stepdown, z_top + final_depth)
-            # Cut full circle (G3, CCW), centered at hole center (I = -offset, J = 0)
-            f.write(f"G1 Z{next_depth+probe_offset_z:.3f} F200\n")  # Spiral down
-            f.write(f"G3 X{start_x:.3f} Y{start_y:.3f} I{-offset:.3f} J0.000 F500\n")
+        while current_depth > target_depth + 1e-9:
+            next_depth = max(current_depth - spiral_stepdown, target_depth)
+            f.write(
+                f"G3 X{start_x:.3f} Y{start_y:.3f} "
+                f"Z{next_depth + probe_offset_z:.3f} "
+                f"I{-offset:.3f} J0.000 F{feed_arc:.0f}\n"
+            )
             current_depth = next_depth
-        # Retract to job travel height after each hole
-        f.write(f"G0 Z{job_travel_height:.3f}\n")
+
+        write_rapid(f, z=job_travel_height)
     f.write("( End Holes )\n")
 
-    # --- 3. Warped Outcut ---
-    # Ensure we're at travel height before moving XY
-    f.write(f"G0 Z{job_travel_height:.3f}\n")
-    for pass_depth in range(1, outcut_depth+1):
-        zpath = outcut_z - pass_depth
-        f.write(f"( Outcut Pass {pass_depth}: {pass_depth}mm below surface )\n")
-        # XY move at travel height
-        f.write(f"G0 X{outcut_warped_x[0]:.3f} Y{outcut_warped_y[0]:.3f}\n")
-        # Z plunge to start cut
-        f.write(f"G0 Z{zpath[0]+probe_offset_z:.3f}\n")
+    # ----------------------
+    # --- 3) OUTCUT (parallel to warped outcut surface, last pass to lowest Z−thickness)
+    # ----------------------
+    # outcut_z is your warped “surface” sampled along the outcut path
+    outcut_passes = make_parallel_passes(outcut_z, outcut_depth, cut_step)
+    lowest_probe_z = float(np.min(probed_points["z"]))
+    final_plane_z  = lowest_probe_z - outcut_depth
+    f.write(f"\n( Outcut: final plane = lowest_probe_z({lowest_probe_z:.3f}) - {outcut_depth:.3f} = {final_plane_z:.3f} )\n")
+
+    write_rapid(f, z=job_travel_height)
+    write_rapid(f, x=outcut_warped_x[0], y=outcut_warped_y[0])
+
+    for idx, zpath in enumerate(outcut_passes, 1):
+        # start depth for this pass
+        f.write(f"\n( Outcut pass {idx} )\n")
+        f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
         for xo, yo, zo in zip(outcut_warped_x[1:], outcut_warped_y[1:], zpath[1:]):
-            f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo+probe_offset_z:.3f} F1000\n")
-    # *** Final retract up ***
-    f.write(f"G0 Z{job_travel_height:.3f}\n")
-    f.write("M2 ; End of program\n")
+            f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo + probe_offset_z:.3f} F{feed_linear:.0f}\n")
+
+    write_rapid(f, z=job_travel_height)
+    f.write("\nM2 ; End of program\n")
