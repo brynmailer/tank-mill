@@ -11,7 +11,8 @@ from matplotlib.collections import LineCollection
 import utils
 
 # ---- Settings ----
-path = "./data/a_points.csv"
+#path = "./data/a_points.csv"
+path = "expected_a_probe_points.csv"
 groove_depth = 5     # Groove cut depth (mm)
 outcut_depth = 12    # Outcut depth (mm)
 cut_step = 3         # Step-down increment (mm)
@@ -196,7 +197,7 @@ for x0, y0 in centered_drill_points:
     drill_surface_z.append(z0)
 warped_drill_points = np.array(warped_drill_points)
 drill_surface_z = np.array(drill_surface_z)
-
+"""
 # ---- 7. Plot everything ----
 plot.figure(figsize=(13, 13))
 # Warped groove
@@ -238,6 +239,94 @@ plot.legend()
 plot.grid(True)
 plot.tight_layout()
 plot.show()
+"""
+
+# ---- 7. Plot everything ----
+from matplotlib.patches import Circle
+from matplotlib.collections import PatchCollection
+
+fig = plot.figure(figsize=(13, 13))
+ax = plot.gca()
+
+# Warped groove
+points_g = np.array([smooth_groove_x, smooth_groove_y]).T.reshape(-1, 1, 2)
+segments_g = np.concatenate([points_g[:-1], points_g[1:]], axis=1)
+norm_g = plot.Normalize(np.min(surface_z - groove_depth), np.max(surface_z))
+lc_g = LineCollection(segments_g, cmap='viridis', norm=norm_g)
+final_groove_z = surface_z - groove_depth
+lc_g.set_array(final_groove_z)
+lc_g.set_linewidth(2)
+ax.add_collection(lc_g)
+
+# Warped outcut
+points_o = np.array([outcut_warped_x, outcut_warped_y]).T.reshape(-1, 1, 2)
+segments_o = np.concatenate([points_o[:-1], points_o[1:]], axis=1)
+norm_o = plot.Normalize(np.min(final_outcut_z), np.max(outcut_z))
+lc_o = LineCollection(segments_o, cmap='plasma', norm=norm_o)
+lc_o.set_array(final_outcut_z)
+lc_o.set_linewidth(2)
+ax.add_collection(lc_o)
+
+# Circles around probed points
+probe_circle_radius_big = 99.25
+probe_circle_radius_small = 64.0
+
+# Blue 99.25 mm
+circles_big = [Circle((float(x), float(y)), radius=probe_circle_radius_big)
+               for x, y in zip(probed_points["x"], probed_points["y"])]
+pc_big = PatchCollection(circles_big, facecolor='none', edgecolor='tab:blue',
+                         linewidth=1.2, linestyle='--', alpha=0.9, zorder=9)
+ax.add_collection(pc_big)
+
+# Red 64 mm
+circles_small = [Circle((float(x), float(y)), radius=probe_circle_radius_small)
+                 for x, y in zip(probed_points["x"], probed_points["y"])]
+pc_small = PatchCollection(circles_small, facecolor='none', edgecolor='red',
+                           linewidth=1.2, linestyle='--', alpha=0.9, zorder=9)
+ax.add_collection(pc_small)
+
+# Plot original (centered) and warped drill points
+plot.scatter(centered_drill_points[:,0], centered_drill_points[:,1],
+             marker='o', facecolors='none', edgecolors='r', s=120, linewidths=2,
+             label='Original Drill Points (centered)', zorder=11)
+plot.scatter(warped_drill_points[:,0], warped_drill_points[:,1],
+             marker='x', color='black', s=120, linewidths=2,
+             label='Warped Drill Points', zorder=12)
+
+plot.plot(orig_groove_x, orig_groove_y, '--', color='gray', linewidth=1.2,
+          label="Original Groove Path")
+plot.plot(orig_outcut_x, orig_outcut_y, 'r--', linewidth=1.2,
+          label="Original Outcut (dashed)")
+
+# Probe points (colored by groove final Z)
+plot.scatter(probed_points["x"], probed_points["y"],
+             c=probed_points["z"], cmap='viridis', edgecolors='k',
+             label='Probe Points', zorder=10, norm=norm_g)
+
+# Colorbars
+plot.colorbar(lc_g, label="Groove Z (mm, deepest pass)", pad=0.01)
+plot.colorbar(lc_o, label="Outcut Z (mm, deepest pass)", pad=0.04)
+
+# Axes / labels
+ax.set_aspect('equal')
+plot.xlabel("X (mm)")
+plot.ylabel("Y (mm)")
+plot.title("Groove and Outcut, Warped Depth\n(Color: final cut Z at each location)")
+
+# Legend including circle styles
+from matplotlib.lines import Line2D
+circle_key_big = Line2D([0], [0], color='tab:blue', lw=1.2, ls='--', label='99.25 mm radius')
+circle_key_small = Line2D([0], [0], color='red', lw=1.2, ls='--', label='64.0 mm radius')
+handles, labels = ax.get_legend_handles_labels()
+handles.extend([circle_key_big, circle_key_small])
+labels.extend(['99.25 mm radius', '64.0 mm radius'])
+ax.legend(handles, labels)
+
+plot.grid(True)
+plot.tight_layout()
+plot.show()
+
+
 
 # ---- 8. Export G-code for groove, holes, outcut in a single file ----
 spiral_stepdown = 2.0   # mm per spiral
