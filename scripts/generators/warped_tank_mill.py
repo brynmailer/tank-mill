@@ -344,23 +344,40 @@ with open("tank_full_job_warped.gcode", "w") as f:
     f.write("( End Holes )\n")
 
     # ----------------------
-    # --- 3) OUTCUT (parallel to warped outcut surface, last pass to lowest Z−thickness)
+    # --- 3) OUTCUT (parallel passes, final pass constant at lowest Z − thickness)
     # ----------------------
-    # outcut_z is your warped “surface” sampled along the outcut path
-    outcut_passes = make_parallel_passes(outcut_z, outcut_depth, cut_step)
+
+    # Build parallel depths: cut_step increments up to (but not including) the final depth
+    depths = list(np.arange(cut_step, outcut_depth, cut_step))  # e.g. 3, 6, 9 for 12
+
+    # Parallel passes (each follows warped surface)
+    parallel_passes = [outcut_z - d for d in depths]
+
+    # Final constant plane: lowest probed point minus tank thickness (uniform around path)
     lowest_probe_z = float(np.min(probed_points["z"]))
     final_plane_z  = lowest_probe_z - outcut_depth
+    last_pass      = np.full_like(outcut_z, final_plane_z)
+
+    # Combine: all parallel passes, then the constant-depth finishing pass
+    outcut_passes = parallel_passes + [last_pass]
+
     f.write(f"\n( Outcut: final plane = lowest_probe_z({lowest_probe_z:.3f}) - {outcut_depth:.3f} = {final_plane_z:.3f} )\n")
 
+    # Go to safe Z and XY start once
     write_rapid(f, z=job_travel_height)
     write_rapid(f, x=outcut_warped_x[0], y=outcut_warped_y[0])
 
     for idx, zpath in enumerate(outcut_passes, 1):
-        # start depth for this pass
-        f.write(f"\n( Outcut pass {idx} )\n")
+        is_last = (idx == len(outcut_passes))
+        step_desc = (cut_step if not is_last else (outcut_depth - cut_step * len(depths)))
+        f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} )\n")
+
+        # Plunge to the pass start Z (add probe_offset_z when writing)
         f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
+
+        # Follow the path: for parallel passes Z varies with XY; for last pass it's a constant array
         for xo, yo, zo in zip(outcut_warped_x[1:], outcut_warped_y[1:], zpath[1:]):
             f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo + probe_offset_z:.3f} F{feed_linear:.0f}\n")
 
+    # Retract after outcut
     write_rapid(f, z=job_travel_height)
-    f.write("\nM2 ; End of program\n")
