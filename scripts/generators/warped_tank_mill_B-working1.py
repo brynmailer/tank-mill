@@ -11,7 +11,7 @@ from matplotlib.collections import LineCollection
 import utils
 
 # ---- Settings ----
-path = "./data/a_points.csv"
+path = "./data/b_points_testing.csv"
 groove_depth = 5     # Groove cut depth (mm)
 outcut_depth = 12    # Outcut depth (mm)
 cut_step = 1         # Step-down increment (mm)
@@ -20,7 +20,7 @@ cut_step = 1         # Step-down increment (mm)
 probed_points = utils.load_points(path)
 
 # ---- 2. Load segment definitions from JSON ----
-with open("./data/tank_mill_features.json", "r") as f:
+with open("./data/b_tank_mill_features.json", "r") as f:
     features = json.load(f)
 
 # Convert JSON format to tuple format expected by utils.build_path
@@ -53,25 +53,31 @@ def center_path(x, y, valid_overlay):
     return x + offset_x, y + offset_y
 
 print("Building groove path")
-groove_x, groove_y = utils.build_path(groove_segments, utils.arc_g2)
+groove_x, groove_y = utils.build_path(groove_segments, utils.arc_g3)
 groove_x, groove_y = center_path(groove_x, groove_y, probed_points)
 orig_groove_x, orig_groove_y = np.copy(groove_x), np.copy(groove_y)
 
 print("\n")
 
 print("Building outcut path")
-outcut_x, outcut_y = utils.build_path(outcut_segments, utils.arc_g3)
+outcut_x, outcut_y = utils.build_path(outcut_segments, utils.arc_g2)
 outcut_x, outcut_y = center_path(outcut_x, outcut_y, probed_points)
 orig_outcut_x, orig_outcut_y = np.copy(outcut_x), np.copy(outcut_y)
 
 # ---- 4. Groove Warping ----
 baseline = 80.0
 gcode_path = LineString(list(zip(groove_x, groove_y)))
-rbf = Rbf(probed_points["x"], probed_points["y"],
-    [ShapelyPoint(row["x"], row["y"]).distance(gcode_path.interpolate(gcode_path.project(ShapelyPoint(row["x"], row["y"])))) - baseline
-    for idx, row in probed_points.iterrows()], function='linear')
 
+def residual(px, py):
+    p = ShapelyPoint(px, py)
+    d = p.distance(gcode_path.interpolate(gcode_path.project(p)))  # unsigned distance
+    return d - baseline # <-- flip sign: if d>baseline, residual is negative (pull inward)
 
+rbf = Rbf(
+    probed_points["x"], probed_points["y"],
+    [residual(row["x"], row["y"]) for _, row in probed_points.iterrows()],
+    function='linear'
+)
 
 warped_x, warped_y = [], []
 for i in range(len(groove_x)):

@@ -11,10 +11,10 @@ from matplotlib.collections import LineCollection
 import utils
 
 # ---- Settings ----
-path = "./data/a_points.csv"
+path = "./data/b_points_testing.csv"
 groove_depth = 5     # Groove cut depth (mm)
 outcut_depth = 12    # Outcut depth (mm)
-cut_step = 3         # Step-down increment (mm)
+cut_step = 1         # Step-down increment (mm)
 
 # ---- 1. Read probe points ----
 probed_points = utils.load_points(path)
@@ -71,14 +71,13 @@ gcode_path = LineString(list(zip(groove_x, groove_y)))
 def residual(px, py):
     p = ShapelyPoint(px, py)
     d = p.distance(gcode_path.interpolate(gcode_path.project(p)))  # unsigned distance
-    return d - baseline  # <-- flip sign: if d>baseline, residual is negative (pull inward)
+    return d - baseline # <-- flip sign: if d>baseline, residual is negative (pull inward)
 
 rbf = Rbf(
     probed_points["x"], probed_points["y"],
     [residual(row["x"], row["y"]) for _, row in probed_points.iterrows()],
     function='linear'
 )
-
 
 warped_x, warped_y = [], []
 for i in range(len(groove_x)):
@@ -246,117 +245,66 @@ tool_diameter = 7.0
 hole_radius = hole_diameter / 2
 tool_radius = tool_diameter / 2
 offset = hole_radius - tool_radius   # 0.75mm offset from hole center
+probe_offset_z = 44
 
-safe_height = 20.0
+safe_height = 3.0
 approach_height = 1.0
-probe_offset_z = 44.0  # mm offset between probe zero and machine zero
+final_depth = -12.0
 
-# Calculate job travel height as 20mm above the highest point of the tank
-highest_tank_point = np.max(surface_z)  # Highest Z value from probe data
-job_travel_height = highest_tank_point + probe_offset_z + safe_height
+job_travel_height = -7.7  # mm above probe zero (safe for rapid XY moves)
 
 with open("tank_full_job_warped.gcode", "w") as f:
-    # --- Program header ---
-    f.write("G21 ; mm units\nG90 ; absolute positioning\n$H ; Home\n")
-
-    # ----------------------
-    # --- 1. Warped Groove
-    # ----------------------
-
-    # Build pass depths: cut_step increments until groove_depth, with last pass exact
-    groove_passes = list(np.arange(cut_step, groove_depth, cut_step))
-    if groove_passes[-1] != groove_depth:
-        groove_passes.append(groove_depth)
-
-    for pass_depth in groove_passes:
-        # Z at each path sample = local surface - pass_depth (parallel to surface)
+    # --- 1. Warped Groove ---
+    f.write("G21 ; Set units to mm\nG90 ; Absolute positioning\n")
+    for pass_depth in range(1, groove_depth+1):
         zpath = surface_z - pass_depth
-        f.write(f"( Groove Pass {pass_depth}mm below local surface )\n")
-
-        # Move to start point at safe Z
+        f.write(f"( Groove Pass {pass_depth}: {pass_depth}mm below surface )\n")
+        # Move to groove start at travel height, then plunge Z down
         f.write(f"G0 Z{job_travel_height:.3f}\n")
         f.write(f"G0 X{smooth_groove_x[0]:.3f} Y{smooth_groove_y[0]:.3f}\n")
-        f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F200\n")
-
-        # Continuous loop following warped groove
+        f.write(f"G0 Z{zpath[0]+probe_offset_z:.3f}\n")
         for xg, yg, zg in zip(smooth_groove_x[1:], smooth_groove_y[1:], zpath[1:]):
-            f.write(f"G1 X{xg:.3f} Y{yg:.3f} Z{zg + probe_offset_z:.3f} F1000\n")
-
-    # Retract after groove
+            f.write(f"G1 X{xg:.3f} Y{yg:.3f} Z{zg+probe_offset_z:.3f} F1000\n")
+    # *** Rapid up after groove ***
     f.write(f"G0 Z{job_travel_height:.3f}\n")
     f.write("( End Groove )\n")
 
-    # ----------------------
-    # --- 2. Spiral Holes (no mid-lift)
-    # ----------------------
-    f.write("\n( Spiral-milled holes: helical 2mm per rev, no mid-lift )\n")
+    # --- 2. Spiral-milled Holes (correct Z start) ---
+    f.write("\n( Spiral-milled holes )\n")
     for i, (x, y) in enumerate(warped_drill_points):
-        z_top = float(drill_surface_z[i])           # local surface at this hole
-        target_depth = z_top - outcut_depth         # final Z (more negative)
-        start_x, start_y = x + offset, y            # start point on hole radius
-
+        z_top = drill_surface_z[i]
         f.write(f"\n( Spiral Hole {i+1} at X{x:.3f} Y{y:.3f} )\n")
-        # Safe approach
+        # Move to hole XY at travel height, then approach Z
         f.write(f"G0 Z{job_travel_height:.3f}\n")
         f.write(f"G0 X{x:.3f} Y{y:.3f}\n")
         f.write(f"G0 Z{z_top + approach_height + probe_offset_z:.3f}\n")
+        # Rapid to spiral start point (offset from center) at approach Z
+        start_x = x + offset
+        start_y = y
         f.write(f"G0 X{start_x:.3f} Y{start_y:.3f}\n")
-
-        # Helical spiral down: one full CCW circle per step to next depth
         current_depth = z_top
-        while current_depth > target_depth + 1e-9:
-            next_depth = max(current_depth - spiral_stepdown, target_depth)
-            # G3 full circle, keeping XY at start point, descending to next_depth
-            f.write(
-                f"G3 X{start_x:.3f} Y{start_y:.3f} "
-                f"Z{next_depth + probe_offset_z:.3f} "
-                f"I{-offset:.3f} J0.000 F500\n"
-            )
+        while current_depth > z_top + final_depth:
+            next_depth = max(current_depth - spiral_stepdown, z_top + final_depth)
+            # Cut full circle (G3, CCW), centered at hole center (I = -offset, J = 0)
+            f.write(f"G1 Z{next_depth+probe_offset_z:.3f} F200\n")  # Spiral down
+            f.write(f"G3 X{start_x:.3f} Y{start_y:.3f} I{-offset:.3f} J0.000 F500\n")
             current_depth = next_depth
-    # Retract after the hole
-    f.write(f"G0 Z{job_travel_height:.3f}\n")
+        # Retract to job travel height after each hole
+        f.write(f"G0 Z{job_travel_height:.3f}\n")
     f.write("( End Holes )\n")
 
-   
-    # ----------------------
-    # --- 3. Outcut
-    # ----------------------
-    lowest_probe_z = float(np.min(probed_points["z"]))
-    final_plane_z  = lowest_probe_z - outcut_depth   # lowest surface point minus thickness
-
-    # Build passes similar to groove: each path follows the warped surface, but stepped down
-    def make_outcut_passes(surface_z, total_depth, step):
-        passes = []
-        depth = step
-        while depth < total_depth - 1e-9:   # intermediate steps
-            passes.append(surface_z - depth)
-            depth += step
-        # last pass goes exactly to final depth
-        passes.append(surface_z - total_depth)
-        return passes
-
-    # Generate Z profiles for outcut (parallel to warped surface)
-    outcut_passes = make_outcut_passes(outcut_z, outcut_depth, cut_step)
-
-
-    f.write(f"( Outcut passes: lowest_probe_z {lowest_probe_z:.3f}, cut depth {outcut_depth:.3f}, final plane {final_plane_z:.3f} )\n")
-
-
-    # Start positioning
+    # --- 3. Warped Outcut ---
+    # Ensure we're at travel height before moving XY
     f.write(f"G0 Z{job_travel_height:.3f}\n")
-    f.write(f"G0 X{outcut_warped_x[0]:.3f} Y{outcut_warped_y[0]:.3f}\n")
-
-    # Loop over passes
-    for pass_num, zpath in enumerate(outcut_passes, 1):
-        f.write(f"\n( Outcut pass {pass_num}: {cut_step if pass_num < len(outcut_passes) else outcut_depth - cut_step*(len(outcut_passes)-1):.3f}mm step )\n")
-        # move down to start Z
-        f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F200\n")
-
-        # Follow warped surface with local Z adjustments
+    for pass_depth in range(1, outcut_depth+1):
+        zpath = outcut_z - pass_depth
+        f.write(f"( Outcut Pass {pass_depth}: {pass_depth}mm below surface )\n")
+        # XY move at travel height
+        f.write(f"G0 X{outcut_warped_x[0]:.3f} Y{outcut_warped_y[0]:.3f}\n")
+        # Z plunge to start cut
+        f.write(f"G0 Z{zpath[0]+probe_offset_z:.3f}\n")
         for xo, yo, zo in zip(outcut_warped_x[1:], outcut_warped_y[1:], zpath[1:]):
-            f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo + probe_offset_z:.3f} F1000\n")
-
-    # Retract at the end
+            f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo+probe_offset_z:.3f} F1000\n")
+    # *** Final retract up ***
     f.write(f"G0 Z{job_travel_height:.3f}\n")
-    f.write("\nM2 ; End of program\n")
-
+    f.write("M2 ; End of program\n")
