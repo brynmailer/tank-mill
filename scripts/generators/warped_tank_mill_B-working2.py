@@ -459,6 +459,7 @@ park_x, park_y = -10.0, 1200.0
 # ---- Feeds (mm/min) ----
 feed_plunge = 200.0     # Z-only plunges / re-plunges
 feed_linear = 1000.0    # cutting moves (G1 XY/XYZ)
+feed_linear_outside = 2000  # increase speed after first pass on outside cut
 feed_arc    = 700.0     # helical/circular arcs (G2/G3)
 
 # ---- “Rapid” between cuts ----
@@ -572,9 +573,15 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
     for idx, zpath in enumerate(outcut_passes, 1):
         is_last = (idx == len(outcut_passes))
+        is_first = (idx == 1)
         step_desc = (cut_step if not is_last else (outcut_depth - cut_step * len(depths)))
         f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} )\n")
 
+        #  Choose feed rate based on pass number
+        current_feed = feed_linear if is_first else feed_linear_outside
+        f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} - Feed: {current_feed:.0f} )\n")
+
+        
         # Plunge to the pass start Z (add probe_offset_z when writing)
         f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
 

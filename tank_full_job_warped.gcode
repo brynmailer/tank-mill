@@ -2351,6 +2351,8 @@ G0 Z-4.342
 G0 X-609.390 Y273.213
 
 ( Outcut pass 1: 3.000mm step, parallel to surface )
+
+( Outcut pass 1: 3.000mm step, parallel to surface - Feed: 1000 )
 G1 Z-31.413 F200
 G1 X-609.270 Y270.258 Z-31.410 F1000
 G1 X-608.923 Y267.319 Z-31.407 F1000
@@ -3353,6 +3355,8 @@ G1 X-609.404 Y279.127 Z-31.419 F1000
 G1 X-609.397 Y276.171 Z-31.415 F1000
 
 ( Outcut pass 2: 3.000mm step, parallel to surface )
+
+( Outcut pass 2: 3.000mm step, parallel to surface - Feed: 2000 )
 G1 Z-34.413 F200
 G1 X-609.270 Y270.258 Z-34.410 F1000
 G1 X-608.923 Y267.319 Z-34.407 F1000
@@ -4355,6 +4359,8 @@ G1 X-609.404 Y279.127 Z-34.419 F1000
 G1 X-609.397 Y276.171 Z-34.415 F1000
 
 ( Outcut pass 3: 3.000mm step, parallel to surface )
+
+( Outcut pass 3: 3.000mm step, parallel to surface - Feed: 2000 )
 G1 Z-37.413 F200
 G1 X-609.270 Y270.258 Z-37.410 F1000
 G1 X-608.923 Y267.319 Z-37.407 F1000
@@ -5357,6 +5363,8 @@ G1 X-609.404 Y279.127 Z-37.419 F1000
 G1 X-609.397 Y276.171 Z-37.415 F1000
 
 ( Outcut pass 4: final constant plane )
+
+( Outcut pass 4: final constant plane - Feed: 2000 )
 G1 Z-39.255 F200
 G1 X-609.270 Y270.258 Z-39.255 F1000
 G1 X-608.923 Y267.319 Z-39.255 F1000
