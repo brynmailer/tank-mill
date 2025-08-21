@@ -498,6 +498,10 @@ def make_parallel_passes(surface_array, total_depth, step):
 with open("tank_full_job_warped.gcode", "w") as f:
     # --- Program header ---
     # f.write("G21 ; mm units\nG90 ; absolute positioning\n$H ; Home\n")
+    
+    # Start spindle @ 12000 RPM after arriving at start
+    f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
+
 
 
     # ----------------------
@@ -565,9 +569,6 @@ with open("tank_full_job_warped.gcode", "w") as f:
     write_rapid(f, z=job_travel_height)
     write_rapid(f, x=outcut_warped_x[0], y=outcut_warped_y[0])
 
-    # Start spindle @ 12000 RPM after arriving at start
-    f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
-
     for idx, zpath in enumerate(outcut_passes, 1):
         is_last = (idx == len(outcut_passes))
         step_desc = (cut_step if not is_last else (outcut_depth - cut_step * len(depths)))
@@ -582,9 +583,10 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
     
     write_rapid(f, z=job_travel_height) # Retract after outcut
+    f.write("( Stop spindle )\nM5\n")   # Stop spindle
     f.write("\n( Park at end )\n")      # Park at requested position
     write_rapid(f, x=park_x, y=park_y)
-    f.write("( Stop spindle )\nM5\n")   # Stop spindle
+    
 
 
 # ---- 8. Plot everything ----
