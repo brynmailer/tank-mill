@@ -4,7 +4,7 @@ import numpy as np
 TRAVEL_SPEED=5000
 PROBE_SPEED=250
 START_Z = -65
-OFFSET_MM = 12.75
+OFFSET_MM = 10 # was 12.75
   
 def shell_probe(type):
     inner_coords = np.loadtxt(f"{type}concentric_inner.csv", delimiter=',', skiprows=1)

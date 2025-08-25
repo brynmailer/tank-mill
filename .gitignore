@@ -1,3 +1,7 @@
 .venv/
 .ipynb_checkpoints/
 .aider*
+*.csv
+*.gcode
+!data/*.csv
+!data/*.gcode

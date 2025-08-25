@@ -1,4 +1,5 @@
 import sys
+import argparse
 sys.path.append("./src")
 
 import matplotlib.pyplot as plot
@@ -11,8 +12,18 @@ from matplotlib.collections import LineCollection
 
 import utils 
 
+# ---- Parser --- #
+parser = argparse.ArgumentParser()
+parser.add_argument("-m", "--mirror", action="store_true",
+                    help="Enable mirror mode (defaults to off)")
+parser.add_argument("path", type=str,
+                    help="Path to points csv")
+args = parser.parse_args()
+
+
+
 # ---- Settings ----
-path = "./data/b_points.csv"
+path = args.path
 #path = "expected_a_probe_points.csv"
 groove_depth = 5     # Groove cut depth (mm)
 outcut_depth = 10    # Outcut depth (mm)
@@ -22,8 +33,12 @@ cut_step = 3         # Step-down increment (mm)
 probed_points = utils.load_points(path)
 
 # ---- 2. Load segment definitions from JSON ----
-with open("./data/b_tank_mill_features.json", "r") as f:
+file_path = ("./data/b_tank_mill_features.json"
+    if args.mirror
+    else "./data/a_tank_mill_features.json")
+with open(file_path, "r") as f:
     features = json.load(f)
+
 
 # Convert JSON format to tuple format expected by utils.build_path
 def convert_segments(json_segments):
@@ -77,18 +92,25 @@ def center_path(x, y, valid_overlay):
 
     return x + offset_x, y + offset_y
 
+# ---- Pick arcs depending on mirror ----
+if args.mirror:
+    groove_arc, outcut_arc = utils.arc_g3, utils.arc_g2
+else:
+    groove_arc, outcut_arc = utils.arc_g2, utils.arc_g3
+
+# ---- Groove path ----
 print("Building groove path")
-groove_x, groove_y = utils.build_path(groove_segments, utils.arc_g3)
+groove_x, groove_y = utils.build_path(groove_segments, groove_arc)
 groove_x, groove_y = center_path(groove_x, groove_y, probed_points)
 orig_groove_x, orig_groove_y = np.copy(groove_x), np.copy(groove_y)
 
 print("\n")
 
+# ---- Outcut path ----
 print("Building outcut path")
-outcut_x, outcut_y = utils.build_path(outcut_segments, utils.arc_g2)
+outcut_x, outcut_y = utils.build_path(outcut_segments, outcut_arc)
 outcut_x, outcut_y = center_path(outcut_x, outcut_y, probed_points)
 orig_outcut_x, orig_outcut_y = np.copy(outcut_x), np.copy(outcut_y)
-
 # ---- 4. Groove Warping ----
 baseline = 80.0
 gcode_path = LineString(list(zip(groove_x, groove_y)))
@@ -96,7 +118,10 @@ gcode_path = LineString(list(zip(groove_x, groove_y)))
 def residual(px, py):
     p = ShapelyPoint(px, py)
     d = p.distance(gcode_path.interpolate(gcode_path.project(p)))  # unsigned distance
-    return d - baseline  # positive = push outward, negative = pull inward
+    if args.mirror:
+        return d - baseline            # mirror mode
+    else:
+        return -(d - baseline)         # normal mode
 
 rbf = Rbf(
     probed_points["x"], probed_points["y"],
@@ -122,6 +147,8 @@ for i in range(len(groove_x)):
         tangent /= norm
         nx, ny = -tangent[1], tangent[0]
     delta = rbf(x, y)
+    if not args.mirror:
+        delta = -delta
     warped_x.append(x + delta * nx)
     warped_y.append(y + delta * ny)
 
@@ -415,6 +442,8 @@ for x0, y0 in centered_drill_points:
     
         # Interpolate the deformation at that fraction
     delta = delta_interp(groove_frac_pt)
+    if not args.mirror:
+        delta = -delta
 
     # Find the closest point on the groove
     closest_pt = gcode_path.interpolate(d_proj)
@@ -451,15 +480,16 @@ tool_radius     = tool_diameter / 2
 offset          = hole_radius - tool_radius   # 0.75mm offset from hole center
 
 safe_height     = 20.0
-approach_height = 1.0
+approach_height = 2.0
 probe_offset_z  = 44.0  # mm offset between probe zero and machine zero
 park_x, park_y = -10.0, 1200.0
 
 
 # ---- Feeds (mm/min) ----
-feed_plunge = 200.0     # Z-only plunges / re-plunges
-feed_linear = 1000.0    # cutting moves (G1 XY/XYZ)
-feed_arc    = 700.0     # helical/circular arcs (G2/G3)
+feed_plunge = 200.0         # Z-only plunges / re-plunges
+feed_linear = 2000.0        # cutting moves (G1 XY/XYZ)
+feed_linear_outcut = 800    # decreese speed for first outsid pass
+feed_arc    = 700.0         # helical/circular arcs (G2/G3)
 
 # ---- “Rapid” between cuts ----
 # Many controllers don't let you change G0 speed. If you want a controllable
@@ -503,7 +533,6 @@ with open("tank_full_job_warped.gcode", "w") as f:
     f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
 
 
-
     # ----------------------
     # --- 1) GROOVE
     # ----------------------
@@ -515,33 +544,46 @@ with open("tank_full_job_warped.gcode", "w") as f:
     write_rapid(f, z=job_travel_height)
     f.write("( End Groove )\n")
 
-    # ----------------------
-    # --- 2) SPIRAL HOLES (no mid-lift)
-    # ----------------------
-    f.write("\n( Spiral-milled holes: helical 2mm per rev, no mid-lift )\n")
-    for i, (x, y) in enumerate(warped_drill_points, 1):
-        z_top        = float(drill_surface_z[i-1])     # local surface
-        target_depth = z_top - outcut_depth            # final Z
-        start_x, start_y = x + offset, y
 
-        f.write(f"\n( Spiral Hole {i} at X{x:.3f} Y{y:.3f} )\n")
+
+    # ----------------------
+    # --- 2) CIRCULAR HOLES (constant-Z circles; step = spiral_stepdown; no peck) ---
+    # ----------------------
+    # Final constant plane: lowest probed point minus tank thickness (uniform around path)
+    lowest_probe_z = float(np.min(probed_points["z"]))
+    final_plane_z  = lowest_probe_z - outcut_depth
+
+    f.write("\n( Circular pocket holes: constant-Z circles, step = spiral_stepdown, no peck )\n")
+    for i, (x, y) in enumerate(warped_drill_points, 1):
+        z_top        = float(drill_surface_z[i-1])   # local surface at hole center
+        target_z     = final_plane_z                 # final Z (consistent with outcut)
+        start_x, start_y = x + offset, y            # start at cutter radius
+
+        f.write(f"\n( Hole {i} at X{x:.3f} Y{y:.3f} )\n")
         write_rapid(f, z=job_travel_height)
         write_rapid(f, x=x, y=y)
         write_rapid(f, z=z_top + approach_height + probe_offset_z)
         write_rapid(f, x=start_x, y=start_y)
 
-        current_depth = z_top
-        while current_depth > target_depth + 1e-9:
-            next_depth = max(current_depth - spiral_stepdown, target_depth)
+        current_z = z_top
+        while current_z > target_z + 1e-9:
+            next_z = max(current_z - spiral_stepdown, target_z)
+
+            # Plunge to the next layer depth (no retracts between layers)
+            f.write(f"G1 Z{next_z + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
+
+            # One full circle at constant Z (end == start makes a full 360°)
             f.write(
                 f"G3 X{start_x:.3f} Y{start_y:.3f} "
-                f"Z{next_depth + probe_offset_z:.3f} "
                 f"I{-offset:.3f} J0.000 F{feed_arc:.0f}\n"
             )
-            current_depth = next_depth
 
+            current_z = next_z
+
+        # Retract only after the hole is complete
         write_rapid(f, z=job_travel_height)
     f.write("( End Holes )\n")
+
 
     # ----------------------
     # --- 3) OUTCUT (parallel passes, final pass constant at lowest Z − thickness)
@@ -552,10 +594,6 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
     # Parallel passes (each follows warped surface)
     parallel_passes = [outcut_z - d for d in depths]
-
-    # Final constant plane: lowest probed point minus tank thickness (uniform around path)
-    lowest_probe_z = float(np.min(probed_points["z"]))
-    final_plane_z  = lowest_probe_z - outcut_depth
     last_pass      = np.full_like(outcut_z, final_plane_z)
 
     # Combine: all parallel passes, then the constant-depth finishing pass
@@ -571,8 +609,13 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
     for idx, zpath in enumerate(outcut_passes, 1):
         is_last = (idx == len(outcut_passes))
+        is_first = (idx == 1)
         step_desc = (cut_step if not is_last else (outcut_depth - cut_step * len(depths)))
         f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} )\n")
+        
+        #  Choose feed rate based on pass number
+        current_feed = feed_linear_outcut if is_first else feed_linear
+        f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} - Feed: {current_feed:.0f} )\n")
 
         # Plunge to the pass start Z (add probe_offset_z when writing)
         f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
@@ -676,6 +719,7 @@ plot.show()
 
 
 # ---- Z Profile vs Path Length ----
+groove_passes_plot = make_parallel_passes(surface_z, groove_depth, cut_step)
 fig2, ax2 = plot.subplots(figsize=(12, 6))
 
 # Path distances along groove (in meters)
@@ -689,11 +733,11 @@ probe_dist = np.array([gcode_path.project(ShapelyPoint(x, y)) for x, y in probed
 ax2.scatter(probe_dist, probed_points["z"], color="black", marker="o", label="Probed Points")
 
 # Groove first pass (tank top approximation)
-first_pass_surface = groove_passes[0] + cut_step
+first_pass_surface = groove_passes_plot[0] + cut_step
 ax2.plot(path_dist, first_pass_surface, "-", color="blue", linewidth=2, label="Groove First Pass (tank top)")
 
 # Groove last pass (deepest cut)
-last_pass_surface = groove_passes[-1]
+last_pass_surface = groove_passes_plot[-1]
 ax2.plot(path_dist, last_pass_surface, "-", color="green", linewidth=2, label="Groove Last Pass (deepest cut)")
 
 # Force Z axis tick spacing to 1 mm
