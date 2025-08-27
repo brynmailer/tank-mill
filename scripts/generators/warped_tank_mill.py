@@ -112,7 +112,7 @@ outcut_x, outcut_y = utils.build_path(outcut_segments, outcut_arc)
 outcut_x, outcut_y = center_path(outcut_x, outcut_y, probed_points)
 orig_outcut_x, orig_outcut_y = np.copy(outcut_x), np.copy(outcut_y)
 # ---- 4. Groove Warping ----
-baseline = 80.0
+baseline = 70.8 # distance between probe point and grove = 16 + 54.8 was 80
 gcode_path = LineString(list(zip(groove_x, groove_y)))
 
 def residual(px, py):
@@ -481,14 +481,14 @@ offset          = hole_radius - tool_radius   # 0.75mm offset from hole center
 
 safe_height     = 20.0
 approach_height = 2.0
-probe_offset_z  = 44.0  # mm offset between probe zero and machine zero
+probe_offset_z  = 32.1  # mm offset between probe z switch and spindle end
 park_x, park_y = -10.0, 1200.0
 
 
 # ---- Feeds (mm/min) ----
 feed_plunge = 200.0         # Z-only plunges / re-plunges
 feed_linear = 2000.0        # cutting moves (G1 XY/XYZ)
-feed_linear_outcut = 800    # decreese speed for first outsid pass
+feed_linear_outcut = 1000    # decreese speed for first outsid pass
 feed_arc    = 700.0         # helical/circular arcs (G2/G3)
 
 # ---- “Rapid” between cuts ----

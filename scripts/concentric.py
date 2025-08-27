@@ -3,12 +3,12 @@ import csv
 import matplotlib.pyplot as plt
 
 # PARAMETERS
-n = 79      # inward offset in mm for inner points
-mm = 64     # inward offset in mm for expected points
+mm = 54.8                   # inward offset in mm for expected points
+n = mm + 15                 # inward offset in mm for inner/start points
 x = [4, 2, 5, 3, 3, 3, 4]   # number of equidistant points per edge (list)
-y = 109     # outward perpendicular offset (for outer points)
+y = mm + 30                 # outward perpendicular offset (for outer points)
 z_offsets = [1, 30, 30, 30, 30, 30, 30]  # one z-offset PER CORNER
-circle_radius = 64.0
+circle_radius = 54.8
 
 edges = [
     [(-126.10668204909999, 442.7755669043), (-384.4586113317, 296.1822802327)],
