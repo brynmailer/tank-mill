@@ -25,9 +25,12 @@ args = parser.parse_args()
 # ---- Settings ----
 path = args.path
 #path = "expected_a_probe_points.csv"
-groove_depth = 5     # Groove cut depth (mm)
-outcut_depth = 10    # Outcut depth (mm)
-cut_step = 3         # Step-down increment (mm)
+groove_depth = 5           # Groove cut depth (mm)
+outcut_depth = 10          # Outcut depth (mm)
+outcut_depth_bottom = 20.0 
+cut_step_grove = 3         # Step-down increment (mm)
+cut_step_outcut = 6         # Step-down increment (mm)
+
 
 # ---- 1. Read probe points ----
 probed_points = utils.load_points(path)
@@ -220,7 +223,7 @@ surface_z = savgol_filter(surface_z_raw, window_length=win, polyorder=3, mode="w
 
 def write_closed_groove_passes(f, x_path, y_path, z_passes,
                                probe_offset_z, feed_plunge, feed_linear,
-                               job_travel_height, groove_depth, cut_step):
+                               job_travel_height, groove_depth, cut_step_grove):
     """
     Emit groove passes as closed loops, staying down between passes.
     We rapid to safe and XY start ONCE, then just plunge deeper for each pass.
@@ -488,9 +491,9 @@ park_x, park_y = -10.0, 1200.0
 # ---- Feeds (mm/min) ----
 feed_plunge = 200.0         # Z-only plunges / re-plunges
 feed_linear = 2600.0        # cutting moves (G1 XY/XYZ)
-feed_linear_outcut = 1000    # decreese speed for first outsid pass
+feed_linear_outcut = 900    # decreese speed for first outsid pass
 feed_arc    = 700.0         # helical/circular arcs (G2/G3)
-
+ 
 # ---- “Rapid” between cuts ----
 # Many controllers don't let you change G0 speed. If you want a controllable
 # "rapid", set use_g1_rapid=True and we’ll move with G1 at rapid_feed.
@@ -532,21 +535,22 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # Start spindle @ 12000 RPM after arriving at start
     #f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
     f.write("M3 S12000\n")
-    f.write("G4 P2\n")
+    # f.write("G4 P2\n")
 
 
     # ----------------------
     # --- 1) GROOVE
     # ----------------------
-    groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step)
-    write_closed_groove_passes(f, smooth_groove_x, smooth_groove_y, groove_passes, 
-                              probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
-                              groove_depth, cut_step)
+    
+    if args.mirror:
+        groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step_grove)
+        write_closed_groove_passes(f, smooth_groove_x, smooth_groove_y, groove_passes, 
+                                probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
+                                groove_depth, cut_step_grove)
 
-    write_rapid(f, z=job_travel_height)
-    # f.write("( End Groove )\n")
-
-
+        write_rapid(f, z=job_travel_height)
+        # f.write("( End Groove )\n")
+     
 
     # ----------------------
     # --- 2) CIRCULAR HOLES (constant-Z circles; step = spiral_stepdown; no peck) ---
@@ -591,42 +595,41 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # --- 3) OUTCUT (parallel passes, final pass constant at lowest Z − thickness)
     # ----------------------
 
-    # Build parallel depths: cut_step increments up to (but not including) the final depth
-    depths = list(np.arange(cut_step, outcut_depth, cut_step))  # e.g. 3, 6, 9 for 12
+    # Final constant plane: lowest probed point minus tank thickness
+    lowest_probe_z = float(np.min(probed_points["z"]))
+    final_plane_z  = lowest_probe_z - outcut_depth          # full depth (12mm down)
+    mid_plane_z    = lowest_probe_z - cut_step_outcut        # first step (6mm down)
 
-    # Parallel passes (each follows warped surface)
-    parallel_passes = [outcut_z - d for d in depths]
-    last_pass      = np.full_like(outcut_z, final_plane_z)
+    # Two constant-depth passes: mid, then final
+    outcut_passes = [
+        np.full_like(outcut_z, mid_plane_z),
+        np.full_like(outcut_z, final_plane_z)
+    ]
 
-    # Combine: all parallel passes, then the constant-depth finishing pass
-    outcut_passes = parallel_passes + [last_pass]
-
-    
-    # f.write(f"\n( Outcut: final plane = {final_plane_z:.3f}, "
-        # f"lowest probe {lowest_probe_z:.3f}, depth {outcut_depth:.3f} )\n")
+    # Define XY region for deeper bottom edge
+    x_min, x_max = -508, -107   # replace with your bottom section X range
+    y_min, y_max = 220, 240    # replace with your bottom section Y range
 
     # Go to safe Z and XY start once
     write_rapid(f, z=job_travel_height)
     write_rapid(f, x=outcut_warped_x[0], y=outcut_warped_y[0])
 
-    for idx, zpath in enumerate(outcut_passes, 1):
-        is_last = (idx == len(outcut_passes))
-        is_first = (idx == 1)
-        step_desc = (cut_step if not is_last else (outcut_depth - cut_step * len(depths)))
-        # f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} )\n")
-        
-        #  Choose feed rate based on pass number
-        current_feed = feed_linear_outcut if is_first else feed_linear
-        # f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} - Feed: {current_feed:.0f} )\n")
-
-        # Plunge to the pass start Z (add probe_offset_z when writing)
+    for pass_idx, zpath in enumerate(outcut_passes, 1):
+        # Plunge to pass depth
         f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
 
-        # Follow the path: for parallel passes Z varies with XY; for last pass it's a constant array
         for xo, yo, zo in zip(outcut_warped_x[1:], outcut_warped_y[1:], zpath[1:]):
-            f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo + probe_offset_z:.3f} F{feed_linear:.0f}\n")
+            # On second pass, dip deeper in selected XY range
+            if pass_idx == 2 and (x_min <= xo <= x_max) and (y_min <= yo <= y_max):
+                zo = lowest_probe_z - outcut_depth_bottom
+            f.write(f"G1 X{xo:.3f} Y{yo:.3f} Z{zo + probe_offset_z:.3f} F{feed_linear_outcut:.0f}\n")
 
-    
+        # Force closure back to start
+        f.write(
+            f"G1 X{outcut_warped_x[0]:.3f} Y{outcut_warped_y[0]:.3f} "
+            f"Z{zpath[0] + probe_offset_z:.3f} F{feed_linear_outcut:.0f}\n"
+        )
+
     write_rapid(f, z=job_travel_height) # Retract after outcut
     #f.write("( Stop spindle )\nM5\n")   # Stop spindle
     f.write("M5\n")   # Stop spindle
@@ -722,7 +725,7 @@ plot.show()
 
 
 # ---- Z Profile vs Path Length ----
-groove_passes_plot = make_parallel_passes(surface_z, groove_depth, cut_step)
+groove_passes_plot = make_parallel_passes(surface_z, groove_depth, cut_step_grove)
 fig2, ax2 = plot.subplots(figsize=(12, 6))
 
 # Path distances along groove (in meters)
@@ -736,7 +739,7 @@ probe_dist = np.array([gcode_path.project(ShapelyPoint(x, y)) for x, y in probed
 ax2.scatter(probe_dist, probed_points["z"], color="black", marker="o", label="Probed Points")
 
 # Groove first pass (tank top approximation)
-first_pass_surface = groove_passes_plot[0] + cut_step
+first_pass_surface = groove_passes_plot[0] + cut_step_grove
 ax2.plot(path_dist, first_pass_surface, "-", color="blue", linewidth=2, label="Groove First Pass (tank top)")
 
 # Groove last pass (deepest cut)
