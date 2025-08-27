@@ -530,7 +530,7 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # f.write("G21 ; mm units\nG90 ; absolute positioning\n$H ; Home\n")
     
     # Start spindle @ 12000 RPM after arriving at start
-    f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
+    # f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
 
 
     # ----------------------
@@ -542,7 +542,7 @@ with open("tank_full_job_warped.gcode", "w") as f:
                               groove_depth, cut_step)
 
     write_rapid(f, z=job_travel_height)
-    f.write("( End Groove )\n")
+    # f.write("( End Groove )\n")
 
 
 
@@ -553,13 +553,13 @@ with open("tank_full_job_warped.gcode", "w") as f:
     lowest_probe_z = float(np.min(probed_points["z"]))
     final_plane_z  = lowest_probe_z - outcut_depth
 
-    f.write("\n( Circular pocket holes: constant-Z circles, step = spiral_stepdown, no peck )\n")
+    # f.write("\n( Circular pocket holes: constant-Z circles, step = spiral_stepdown, no peck )\n")
     for i, (x, y) in enumerate(warped_drill_points, 1):
         z_top        = float(drill_surface_z[i-1])   # local surface at hole center
         target_z     = final_plane_z                 # final Z (consistent with outcut)
         start_x, start_y = x + offset, y            # start at cutter radius
 
-        f.write(f"\n( Hole {i} at X{x:.3f} Y{y:.3f} )\n")
+        # f.write(f"\n( Hole {i} at X{x:.3f} Y{y:.3f} )\n")
         write_rapid(f, z=job_travel_height)
         write_rapid(f, x=x, y=y)
         write_rapid(f, z=z_top + approach_height + probe_offset_z)
@@ -582,7 +582,7 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
         # Retract only after the hole is complete
         write_rapid(f, z=job_travel_height)
-    f.write("( End Holes )\n")
+    # f.write("( End Holes )\n")
 
 
     # ----------------------
@@ -600,8 +600,8 @@ with open("tank_full_job_warped.gcode", "w") as f:
     outcut_passes = parallel_passes + [last_pass]
 
     
-    f.write(f"\n( Outcut: final plane = {final_plane_z:.3f}, "
-        f"lowest probe {lowest_probe_z:.3f}, depth {outcut_depth:.3f} )\n")
+    # f.write(f"\n( Outcut: final plane = {final_plane_z:.3f}, "
+        # f"lowest probe {lowest_probe_z:.3f}, depth {outcut_depth:.3f} )\n")
 
     # Go to safe Z and XY start once
     write_rapid(f, z=job_travel_height)
@@ -611,11 +611,11 @@ with open("tank_full_job_warped.gcode", "w") as f:
         is_last = (idx == len(outcut_passes))
         is_first = (idx == 1)
         step_desc = (cut_step if not is_last else (outcut_depth - cut_step * len(depths)))
-        f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} )\n")
+        # f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} )\n")
         
         #  Choose feed rate based on pass number
         current_feed = feed_linear_outcut if is_first else feed_linear
-        f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} - Feed: {current_feed:.0f} )\n")
+        # f.write(f"\n( Outcut pass {idx}: {'final constant plane' if is_last else f'{step_desc:.3f}mm step, parallel to surface'} - Feed: {current_feed:.0f} )\n")
 
         # Plunge to the pass start Z (add probe_offset_z when writing)
         f.write(f"G1 Z{zpath[0] + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
@@ -626,8 +626,9 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
     
     write_rapid(f, z=job_travel_height) # Retract after outcut
-    f.write("( Stop spindle )\nM5\n")   # Stop spindle
-    f.write("\n( Park at end )\n")      # Park at requested position
+    #f.write("( Stop spindle )\nM5\n")   # Stop spindle
+    f.write("M5\n")   # Stop spindle
+    #f.write("\n( Park at end )\n")      # Park at requested position
     write_rapid(f, x=park_x, y=park_y)
     
 
