@@ -487,7 +487,7 @@ park_x, park_y = -10.0, 1200.0
 
 # ---- Feeds (mm/min) ----
 feed_plunge = 200.0         # Z-only plunges / re-plunges
-feed_linear = 2000.0        # cutting moves (G1 XY/XYZ)
+feed_linear = 2600.0        # cutting moves (G1 XY/XYZ)
 feed_linear_outcut = 1000    # decreese speed for first outsid pass
 feed_arc    = 700.0         # helical/circular arcs (G2/G3)
 

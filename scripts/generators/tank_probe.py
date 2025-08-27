@@ -5,7 +5,7 @@ TRAVEL_SPEED=5000
 PROBE_SPEED=250
 START_Z = -100     # xy probing depth = -72.5 z swtich to spoilboard + 10 - 16 mm probing point min tank thickness - z probe from xy (21mm)
 OFFSET_XY_MM = 10   # distance to retract from tank after probing xy
-OFFSET_Z_MM = 74.5    # 21mm from z to xy switch + 15mm clearnce + 38.5 offset measuremtn pt
+OFFSET_Z_MM = 52    # 21mm from z to xy switch + 15mm clearnce + 16 offset measuremtn pt
 OFFSET_XY_SWITCH_MM = 37.4 # distance from xy switch to z probe position = 11.4 (switch z delta) + 16 (grove inset dist) + OFFSET_X_MM (10)
 
 def shell_probe(type):
@@ -46,10 +46,10 @@ def shell_probe(type):
 
 # Example G-Code commands
 startup = [
-    "$X",           # Unlock alarm state (if present)
-    "$H",           # Execute homing cycle
-    "G21",          # Set units to mm
-    "G90",          # Absolute positioning
+    #"$X",           # Unlock alarm state (if present)
+    #"$H",           # Execute homing cycle
+    #"G21",          # Set units to mm
+    #"G90",          # Absolute positioning
 ]
 
 shell_probe('a')
