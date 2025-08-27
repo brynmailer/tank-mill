@@ -530,7 +530,9 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # f.write("G21 ; mm units\nG90 ; absolute positioning\n$H ; Home\n")
     
     # Start spindle @ 12000 RPM after arriving at start
-    # f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
+    #f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
+    f.write("M3 S12000\n")
+    f.write("G4 P2\n")
 
 
     # ----------------------
