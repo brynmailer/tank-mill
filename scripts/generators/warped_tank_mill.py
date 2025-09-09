@@ -26,10 +26,10 @@ args = parser.parse_args()
 path = args.path
 #path = "expected_a_probe_points.csv"
 groove_depth = 5           # Groove cut depth (mm)
-outcut_depth = 10          # Outcut depth (mm)
-outcut_depth_bottom = 20.0 
+outcut_depth = 11          # Outcut depth (mm)
+outcut_depth_bottom = 15.0 
 cut_step_grove = 3         # Step-down increment (mm)
-cut_step_outcut = 6         # Step-down increment (mm)
+cut_step_outcut = 3         # Step-down increment (mm)
 
 
 # ---- 1. Read probe points ----
@@ -534,7 +534,9 @@ with open("tank_full_job_warped.gcode", "w") as f:
     
     # Start spindle @ 12000 RPM after arriving at start
     #f.write("(Spindle ON)\nM3 S12000\nG4 P2 ; 2s spin-up\n")
-    f.write("M3 S12000\n")
+    f.write("M3 S12000\n") # spinde on
+    f.write("M8\n") # Turn on spindle coolant
+    f.write("M7\n") # Turn on chip extraction
     # f.write("G4 P2\n")
 
 
@@ -595,19 +597,22 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # --- 3) OUTCUT (parallel passes, final pass constant at lowest Z − thickness)
     # ----------------------
 
-    # Final constant plane: lowest probed point minus tank thickness
-    lowest_probe_z = float(np.min(probed_points["z"]))
-    final_plane_z  = lowest_probe_z - outcut_depth          # full depth (12mm down)
-    mid_plane_z    = lowest_probe_z - cut_step_outcut        # first step (6mm down)
+    # Generate tank-parallel passes
+    all_outcut_passes = make_parallel_passes(outcut_z, outcut_depth, cut_step_outcut)
 
-    # Two constant-depth passes: mid, then final
-    outcut_passes = [
-        np.full_like(outcut_z, mid_plane_z),
-        np.full_like(outcut_z, final_plane_z)
-    ]
+    # First pass: use probe-based surface minus step (parallel to tank)
+    first_pass_z = all_outcut_passes[0]
+
+    # Final pass: flat at lowest probed point − outcut_depth
+    lowest_probe_z = float(np.min(probed_points["z"]))
+    final_pass_z = np.full_like(outcut_z, lowest_probe_z - outcut_depth)
+
+    # Only keep the first (parallel) and final (flat) passes
+    outcut_passes = [first_pass_z, final_pass_z]
+
 
     # Define XY region for deeper bottom edge
-    x_min, x_max = -508, -107   # replace with your bottom section X range
+    x_min, x_max = -548, -67   # replace with your bottom section X range
     y_min, y_max = 220, 240    # replace with your bottom section Y range
 
     # Go to safe Z and XY start once
@@ -633,6 +638,7 @@ with open("tank_full_job_warped.gcode", "w") as f:
     write_rapid(f, z=job_travel_height) # Retract after outcut
     #f.write("( Stop spindle )\nM5\n")   # Stop spindle
     f.write("M5\n")   # Stop spindle
+    f.write("M9\n") # Turn off spindle coolant and chip extraction
     #f.write("\n( Park at end )\n")      # Park at requested position
     write_rapid(f, x=park_x, y=park_y)
     
