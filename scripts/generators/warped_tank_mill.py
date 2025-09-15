@@ -121,10 +121,7 @@ gcode_path = LineString(list(zip(groove_x, groove_y)))
 def residual(px, py):
     p = ShapelyPoint(px, py)
     d = p.distance(gcode_path.interpolate(gcode_path.project(p)))  # unsigned distance
-    if args.mirror:
-        return d - baseline            # mirror mode
-    else:
-        return -(d - baseline)         # normal mode
+    return d - baseline
 
 rbf = Rbf(
     probed_points["x"], probed_points["y"],
@@ -643,7 +640,6 @@ with open("tank_full_job_warped.gcode", "w") as f:
     write_rapid(f, x=park_x, y=park_y)
     
 
-
 # ---- 8. Plot everything ----
 from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
@@ -671,15 +667,7 @@ lc_o.set_linewidth(2)
 ax.add_collection(lc_o)
 
 # Circles around probed points
-probe_circle_radius_big = 99.25
 probe_circle_radius_small = 64.0
-
-# Blue 99.25 mm
-circles_big = [Circle((float(x), float(y)), radius=probe_circle_radius_big)
-               for x, y in zip(probed_points["x"], probed_points["y"])]
-pc_big = PatchCollection(circles_big, facecolor='none', edgecolor='tab:blue',
-                         linewidth=1.2, linestyle='--', alpha=0.9, zorder=9)
-ax.add_collection(pc_big)
 
 # Red 64 mm
 circles_small = [Circle((float(x), float(y)), radius=probe_circle_radius_small)
@@ -716,13 +704,12 @@ plot.xlabel("X (mm)")
 plot.ylabel("Y (mm)")
 plot.title("Groove and Outcut, Warped Depth\n(Color: final cut Z at each location)")
 
-# Legend including circle styles
+# Legend including only red circle style
 from matplotlib.lines import Line2D
-circle_key_big = Line2D([0], [0], color='tab:blue', lw=1.2, ls='--', label='99.25 mm radius')
 circle_key_small = Line2D([0], [0], color='red', lw=1.2, ls='--', label='64.0 mm radius')
 handles, labels = ax.get_legend_handles_labels()
-handles.extend([circle_key_big, circle_key_small])
-labels.extend(['99.25 mm radius', '64.0 mm radius'])
+handles.extend([circle_key_small])
+labels.extend(['64.0 mm radius'])
 ax.legend(handles, labels)
 
 plot.grid(True)
