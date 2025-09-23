@@ -479,7 +479,7 @@ hole_radius     = hole_diameter / 2
 tool_radius     = tool_diameter / 2
 offset          = hole_radius - tool_radius   # 0.75mm offset from hole center
 
-safe_height     = 20.0
+safe_height = 0
 approach_height = 2.0
 probe_offset_z  = 32.1  # mm offset between probe z switch and spindle end
 park_x, park_y = -10.0, 1200.0
@@ -512,7 +512,7 @@ def write_rapid(fh, x=None, y=None, z=None):
 
 # Calculate job travel height as 20mm above the highest point of the tank
 highest_tank_point = float(np.max(surface_z))
-job_travel_height  = highest_tank_point + probe_offset_z + safe_height
+job_travel_height  = safe_height
 
 # Utility: build “parallel-to-surface” Z paths for a given total depth & step
 def make_parallel_passes(surface_array, total_depth, step):
