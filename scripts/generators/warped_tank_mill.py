@@ -610,8 +610,8 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
     # Define XY region for deeper bottom edge
     x_min, x_max = -548, -67   # replace with your bottom section X range
-    y_min, y_max = 220, 240    # replace with your bottom section Y range
-
+    y_min, y_max = 200, 260    # replace with your bottom section Y range was 220 to 240
+    
     # Go to safe Z and XY start once
     write_rapid(f, z=job_travel_height)
     write_rapid(f, x=outcut_warped_x[0], y=outcut_warped_y[0])
