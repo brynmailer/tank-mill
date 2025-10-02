@@ -25,7 +25,7 @@ args = parser.parse_args()
 # ---- Settings ----
 path = args.path
 #path = "expected_a_probe_points.csv"
-groove_depth = 5           # Groove cut depth (mm)
+groove_depth = 4           # Groove cut depth (mm)
 outcut_depth = 11          # Outcut depth (mm)
 outcut_depth_bottom = 15.0 
 cut_step_grove = 3         # Step-down increment (mm)
