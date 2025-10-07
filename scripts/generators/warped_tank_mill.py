@@ -547,7 +547,7 @@ with open("tank_full_job_warped.gcode", "w") as f:
                                 probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
                                 groove_depth, cut_step_grove)
 
-    write_rapid(f, z=job_travel_height)
+        write_rapid(f, z=job_travel_height)
     # f.write("( End Groove )\n")
      
 
