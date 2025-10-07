@@ -541,11 +541,11 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # --- 1) GROOVE
     # ----------------------
     
-    # if args.mirror:
-    groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step_grove)
-    write_closed_groove_passes(f, smooth_groove_x, smooth_groove_y, groove_passes, 
-                            probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
-                            groove_depth, cut_step_grove)
+    if args.mirror:
+        groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step_grove)
+        write_closed_groove_passes(f, smooth_groove_x, smooth_groove_y, groove_passes, 
+                                probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
+                                groove_depth, cut_step_grove)
 
     write_rapid(f, z=job_travel_height)
     # f.write("( End Groove )\n")
