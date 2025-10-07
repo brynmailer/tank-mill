@@ -549,7 +549,7 @@ with open("tank_full_job_warped.gcode", "w") as f:
 
         write_rapid(f, z=job_travel_height)
     # f.write("( End Groove )\n")
-     
+    
 
     # ----------------------
     # --- 2) CIRCULAR HOLES (constant-Z circles; step = spiral_stepdown; no peck) ---
