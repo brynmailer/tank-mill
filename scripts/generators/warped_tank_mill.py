@@ -471,9 +471,11 @@ warped_drill_points = np.array(warped_drill_points)
 drill_surface_z = np.array(drill_surface_z)
 
 
+
 # ---- 7. Export G-code for groove, holes, outcut in a single file ----
 spiral_stepdown = 2.0   # mm per spiral
 hole_diameter   = 8.5
+drain_drill     = 7.0
 tool_diameter   = 7.0
 hole_radius     = hole_diameter / 2
 tool_radius     = tool_diameter / 2
@@ -483,6 +485,9 @@ safe_height = 0
 approach_height = 2.0
 probe_offset_z  = 32.1  # mm offset between probe z switch and spindle end
 park_x, park_y = -10.0, 1200.0
+drain_drill_location = {4,10,17,21} # smaller holes for drain tank legs
+use_drain_drill = True # <---- simple ON/OFF switch for drain tanks
+use_double_seal = False  # <---- simple ON/OFF switch for IO tanks
 
 
 # ---- Feeds (mm/min) ----
@@ -541,7 +546,10 @@ with open("tank_full_job_warped.gcode", "w") as f:
     # --- 1) GROOVE
     # ----------------------
     
-    if args.mirror:
+    
+    # --- Groove cutting logic ---
+    # Cut groove if mirrored or using double-seal; otherwise skip.
+    if args.mirror or use_double_seal:
         groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step_grove)
         write_closed_groove_passes(f, smooth_groove_x, smooth_groove_y, groove_passes, 
                                 probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
@@ -552,42 +560,53 @@ with open("tank_full_job_warped.gcode", "w") as f:
     
 
     # ----------------------
-    # --- 2) CIRCULAR HOLES (constant-Z circles; step = spiral_stepdown; no peck) ---
+    # --- 2) HOLES (constant-Z circles; step = spiral_stepdown; no peck) ---
     # ----------------------
     # Final constant plane: lowest probed point minus tank thickness (uniform around path)
     lowest_probe_z = float(np.min(probed_points["z"]))
     final_plane_z  = lowest_probe_z - outcut_depth
 
-    # f.write("\n( Circular pocket holes: constant-Z circles, step = spiral_stepdown, no peck )\n")
-    for i, (x, y) in enumerate(warped_drill_points, 1):
-        z_top        = float(drill_surface_z[i-1])   # local surface at hole center
-        target_z     = final_plane_z                 # final Z (consistent with outcut)
-        start_x, start_y = x + offset, y            # start at cutter radius
+        # Loop through each warped hole center
+    for i, (x, y) in enumerate(warped_drill_points, 1):  # i is 1-based index
+        # Use smaller drain holes only on the non-mirrored side when enabled.
+        if use_drain_drill and (not args.mirror) and i in drain_drill_location:
+            hole_d_i = drain_drill
+        else:
+            hole_d_i = hole_diameter
 
-        # f.write(f"\n( Hole {i} at X{x:.3f} Y{y:.3f} )\n")
-        write_rapid(f, z=job_travel_height)
-        write_rapid(f, x=x, y=y)
-        write_rapid(f, z=z_top + approach_height + probe_offset_z)
-        write_rapid(f, x=start_x, y=start_y)
+        # Compute radius and offset for this particular hole
+        hole_r_i = hole_d_i / 2.0
+        offset_i = hole_r_i - tool_radius   # pocketing offset from center
+
+        # Retrieve local surface height and set target Z
+        z_top    = float(drill_surface_z[i - 1])  # local top surface at this hole
+        target_z = final_plane_z
+
+        # Starting position offset by tool radius
+        start_x, start_y = x + offset_i, y
+
+        # --- Generate G-code moves for this hole ---
+        write_rapid(f, z=job_travel_height)                        # retract to safe Z
+        write_rapid(f, x=x, y=y)                                   # move above hole
+        write_rapid(f, z=z_top + approach_height + probe_offset_z) # approach height
+        write_rapid(f, x=start_x, y=start_y)                       # move to start offset
 
         current_z = z_top
         while current_z > target_z + 1e-9:
+            # Step down in Z by spiral_stepdown until reaching target depth
             next_z = max(current_z - spiral_stepdown, target_z)
-
-            # Plunge to the next layer depth (no retracts between layers)
             f.write(f"G1 Z{next_z + probe_offset_z:.3f} F{feed_plunge:.0f}\n")
 
-            # One full circle at constant Z (end == start makes a full 360°)
+            # Perform one full circular pocket cut at this depth
             f.write(
                 f"G3 X{start_x:.3f} Y{start_y:.3f} "
-                f"I{-offset:.3f} J0.000 F{feed_arc:.0f}\n"
+                f"I{-offset_i:.3f} J0.000 F{feed_arc:.0f}\n"
             )
 
             current_z = next_z
 
-        # Retract only after the hole is complete
+        # Retract to safe height after finishing this hole
         write_rapid(f, z=job_travel_height)
-    # f.write("( End Holes )\n")
 
 
     # ----------------------
