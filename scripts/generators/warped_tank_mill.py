@@ -486,8 +486,8 @@ approach_height = 2.0
 probe_offset_z  = 32.1  # mm offset between probe z switch and spindle end
 park_x, park_y = -10.0, 1200.0
 drain_drill_location = {4,10,17,21} # smaller holes for drain tank legs
-use_drain_drill = False # <---- simple ON/OFF switch for drain tanks
-use_double_seal = True  # <---- simple ON/OFF switch for IO tanks
+use_drain_drill = False  # <---- simple ON/OFF switch for drain tanks
+use_double_seal = False  # <---- simple ON/OFF switch for IO tanks
 
 
 # ---- Feeds (mm/min) ----
