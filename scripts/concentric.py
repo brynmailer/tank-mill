@@ -7,18 +7,36 @@ mm = 54.8                   # inward offset in mm for expected points
 n = mm + 15                 # inward offset in mm for inner/start points
 x = [4, 2, 5, 3, 3, 3, 4]   # number of equidistant points per edge (list)
 y = mm + 30                 # outward perpendicular offset (for outer points)
-z_offsets = [1, 30, 30, 30, 30, 30, 30]  # one z-offset PER CORNER
+z_offsets = [1, 30, 30, 30, 30, 30, 30]  # one z-offset PER CORNER (not actually z, it is x,y offset)
 circle_radius = 54.8
+tank_centre = [-494, 737.24]            # x , y centre of tank, was -308.69, 738
 
-edges = [
-    [(-126.10668204909999, 442.7755669043), (-384.4586113317, 296.1822802327)],
-    [(-404.198871072, 290.9719647008), (-509.11323920999996, 290.9719647008)],
-    [(-557.11323921, 338.9719647008), (-557.11323921, 1021.2517331501999)],
-    [(-545.0244766326, 1049.9041820078), (-419.5236626445, 1172.1584100271)],
-    [(-391.6124252219, 1183.5059611695), (-225.763340193, 1183.5059611695)],
-    [(-197.8521027704, 1172.1584100271), (-72.3512887823, 1049.9041820078)],
-    [(-60.26252620490001, 1021.2517331501999), (-60.26252620490001, 555.8420414254)]
+
+edges_centered = [
+    [(182.58, -294.46), (-75.77, -441.06)],
+    [(-95.51, -446.27), (-200.43, -446.27)],
+    [(-248.43, -398.27), (-248.43, 284.01)],
+    [(-236.34, 312.67), (-110.84, 434.92)],
+    [(-82.92, 446.27), (82.92, 446.27)],
+    [(110.84, 434.92), (236.34, 312.67)],
+    [(248.43, 284.01), (248.43, -181.40)]
 ]
+
+# Automatically offset all edges relative to tank_centre
+edges = [
+    [((p1[0] + tank_centre[0]), (p1[1] + tank_centre[1])),
+     ((p2[0] + tank_centre[0]), (p2[1] + tank_centre[1]))]
+    for p1, p2 in edges_centered
+]
+
+# --- printed edges ---
+""" 
+print("edges = [")
+for p1, p2 in edges:
+    print(f"    [({p1[0]:.2f}, {p1[1]:.2f}), ({p2[0]:.2f}, {p2[1]:.2f})],")
+print("]")
+"""
+
 
 # ---------- Geometry helpers ----------
 def unit_vector(v): 
@@ -52,7 +70,9 @@ def offset_points_outward(points,p1,p2,dist):
     v = np.asarray(p2,float)-np.asarray(p1,float); n=unit_vector(normal_vector(v))
     return [tuple(np.asarray(pt,float)+dist*n) for pt in points]
 
-def flip_points(points): return [(-px-616,py) for (px,py) in points]
+def flip_points(points):
+    mirror_offset = (2 * tank_centre[0])  # double the X value (e.g., -494 → +988)
+    return [(-px + mirror_offset, py) for (px, py) in points]
 
 # ---------- Validate ----------
 if len(x)!=len(edges) or len(z_offsets)!=len(edges):
