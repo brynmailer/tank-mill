@@ -483,7 +483,7 @@ offset          = hole_radius - tool_radius   # 0.75mm offset from hole center
 
 safe_height = 0
 approach_height = 2.0
-probe_offset_z  = 32.1  # mm offset between probe z switch and spindle tip
+probe_offset_z  = 30.7  # mm offset between probe z switch and spindle tip
 park_x, park_y = -10.0, 1200.0
 drain_drill_location = {4,10,17,21} # smaller holes for drain tank legs
 use_drain_drill = False  # <---- simple ON/OFF switch for drain tanks
