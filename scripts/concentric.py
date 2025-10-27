@@ -9,7 +9,7 @@ x = [4, 2, 5, 3, 3, 3, 4]   # number of equidistant points per edge (list)
 y = mm + 30                 # outward perpendicular offset (for outer points)
 z_offsets = [1, 30, 30, 30, 30, 30, 30]  # one z-offset PER CORNER (not actually z, it is x,y offset)
 circle_radius = 54.8
-tank_centre = [-494, 737.24]            # x , y centre of tank, was -308.69, 738
+tank_centre = [-361.65, 737.24]            # x , y centre of tank, was -308.69, 738
 
 
 edges_centered = [
