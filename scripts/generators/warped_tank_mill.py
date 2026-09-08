@@ -56,7 +56,7 @@ def apply_switch_offsets_to_points(points, mirror, switch_offsets, points_per_fa
         switch_order = [7, 1, 6, 5, 4, 3, 2]
         switch_order = switch_order[:len(points_per_face)]
 
-    # Safety check
+    # Safety check 
     if max(switch_order) >= len(switch_offsets):
         raise ValueError(
             f"switch_offsets has length {len(switch_offsets)}, "
@@ -72,7 +72,7 @@ def apply_switch_offsets_to_points(points, mirror, switch_offsets, points_per_fa
         z_offset = switch_offsets[switch_idx]
 
         # Apply Z offset to all points on this face
-        pts[start:end, 2] += z_offset   # change to -= if your convention is opposite
+        pts[start:end, 2] -= z_offset
 
         idx = end
 
@@ -103,8 +103,8 @@ cut_step_grove = 3         # Step-down increment (mm)
 cut_step_outcut = 9         # Step-down increment (mm)
 
 # Z offsets per switch index (1..8) -> [0..7]
-# RECALIBRATE IF PROBE ASSEMBLY IS MOVED 27.11.2025 TRAGET WITH CURRENT PARAMETERS 4MM
-switch_offsets = [-0.5, -0.8, 0.2, 0.3, 0.7, -0.5, -0.7, -0.8]
+# RECALIBRATE IF PROBE ASSEMBLY IS MOVED 08.09.2026 TRAGET WITH CURRENT PARAMETERS 4MM
+switch_offsets = [0.2, 0.8, 0.0, -0.2, 0.0, 0.3, 0.7, 0.1]
 
 # Number of points per face in order
 points_per_face = [5, 2, 9, 3, 3, 3, 7]  # x from your example
@@ -122,7 +122,7 @@ with open(file_path, "r") as f:
 
 probed_points = apply_switch_offsets_to_points(
     probed_points,
-    mirror=args.mirror,             # False -> A (1234567), True -> B (8765432)
+    mirror=args.mirror,             
     switch_offsets=switch_offsets,
     points_per_face=points_per_face
 )
@@ -567,7 +567,7 @@ offset          = hole_radius - tool_radius   # 0.75mm offset from hole center
 
 safe_height = 0
 approach_height = 2.0
-probe_offset_z  = 32.3  # mm offset between probe z switch and spindle tip
+probe_offset_z  = 31.2  # mm offset between probe z switch and spindle tip
 park_x, park_y = -10.0, 1200.0
 drain_drill_location = {4,10,17,21} # smaller holes for drain tank legs
 use_drain_drill = False  # <---- simple ON/OFF switch for drain tanks
