@@ -96,15 +96,15 @@ args = parser.parse_args()
 # ---- Settings ----
 path = args.path
 #path = "expected_a_probe_points.csv"
-groove_depth = 5.5           # Groove cut depth (mm)
+groove_depth = 6           # Groove cut depth (mm)
 outcut_depth = 16          # Outcut depth (mm)
 outcut_depth_bottom = 17.0 
 cut_step_grove = 3         # Step-down increment (mm)
-cut_step_outcut = 9         # Step-down increment (mm)
+cut_step_outcut = 7         # Step-down increment (mm)
 
 # Z offsets per switch index (1..8) -> [0..7]
 # RECALIBRATE IF PROBE ASSEMBLY IS MOVED 27.11.2025 TRAGET WITH CURRENT PARAMETERS 4MM
-switch_offsets = [-0.5, -0.8, 0.2, 0.3, 0.7, -0.5, -0.7, -0.8]
+switch_offsets = [0, 0, 0, 0, 0, 0, 0, 0]
 
 # Number of points per face in order
 points_per_face = [5, 2, 9, 3, 3, 3, 7]  # x from your example
@@ -557,7 +557,7 @@ drill_surface_z = np.array(drill_surface_z)
 
 
 # ---- 7. Export G-code for groove, holes, outcut in a single file ----
-spiral_stepdown = 4.0   # mm per spiral
+spiral_stepdown = 2.0   # mm per spiral
 hole_diameter   = 8.5
 drain_drill     = 8.0
 tool_diameter   = 8.0
@@ -571,13 +571,13 @@ probe_offset_z  = 32.3  # mm offset between probe z switch and spindle tip
 park_x, park_y = -10.0, 1200.0
 drain_drill_location = {4,10,17,21} # smaller holes for drain tank legs
 use_drain_drill = False  # <---- simple ON/OFF switch for drain tanks
-use_double_seal = False  # <---- simple ON/OFF switch for IO tanks
+use_double_seal = True  # <---- simple ON/OFF switch for IO tanks
 
 
 # ---- Feeds (mm/min) ----
-feed_plunge = 300.0         # Z-only plunges / re-plunges
+feed_plunge = 200.0         # Z-only plunges / re-plunges
 feed_linear = 2600.0        # cutting moves (G1 XY/XYZ)
-feed_linear_outcut = 2300    # decreese speed for first outsid pass
+feed_linear_outcut = 900    # decreese speed for first outsid pass
 feed_arc    = 700.0         # helical/circular arcs (G2/G3)
  
 # ---- “Rapid” between cuts ----
@@ -633,31 +633,13 @@ with open("tank_full_job_warped.gcode", "w") as f:
     
     # --- Groove cutting logic ---
     # Cut groove if mirrored or using double-seal; otherwise skip.
-        # --- Groove cutting logic ---
-    # Cut groove if mirrored or using double-seal; otherwise skip.
-    # SINGLE PASS: go straight to final groove depth following the tank surface.
     if args.mirror or use_double_seal:
-        # Final single-pass Z profile (surface minus groove depth)
-        final_groove_z = surface_z - groove_depth
-
-        # Wrap in a list because write_closed_groove_passes expects a list of passes
-        groove_passes = [final_groove_z]
-
-        write_closed_groove_passes(
-            f,
-            smooth_groove_x,
-            smooth_groove_y,
-            groove_passes,
-            probe_offset_z,
-            feed_plunge,
-            feed_linear,
-            job_travel_height,
-            groove_depth,
-            cut_step_grove,
-        )
+        groove_passes = make_parallel_passes(surface_z, groove_depth, cut_step_grove)
+        write_closed_groove_passes(f, smooth_groove_x, smooth_groove_y, groove_passes, 
+                                probe_offset_z, feed_plunge, feed_linear, job_travel_height, 
+                                groove_depth, cut_step_grove)
 
         write_rapid(f, z=job_travel_height)
-
     # f.write("( End Groove )\n")
     
 

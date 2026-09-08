@@ -6,7 +6,7 @@ PROBE_SPEED=250
 START_Z = -100     # xy probing depth = -72.5 z swtich to spoilboard + 10 - 16 mm probing point min tank thickness - z probe from xy (21mm)
 OFFSET_XY_MM = 10   # distance to retract from tank after probing xy
 OFFSET_Z_MM = 60    # 21mm from z to xy switch + 18mm clearnce + 21 offset measuremtn pt
-OFFSET_XY_SWITCH_MM = 37.4 # distance from xy switch to z probe position = 11.4 (switch z delta) + 16 (grove inset dist) + OFFSET_X_MM (10)
+OFFSET_XY_SWITCH_MM = 45 # distance from xy switch to z probe position = 11.4 (switch z delta) + 16 (grove inset dist) + OFFSET_X_MM (10)
 
 def shell_probe(type):
     inner_coords = np.loadtxt(f"{type}concentric_inner.csv", delimiter=',', skiprows=1)     # Load inner coordinates (X,Y)
